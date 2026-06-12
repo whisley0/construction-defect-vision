@@ -4,7 +4,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.dataset_routes import router as dataset_router
 from backend.routes import router
+from backend.test_data_routes import router as test_data_router
 
 app = FastAPI(
     title="Construction Defect Vision — RFI Crosscheck",
@@ -20,6 +22,8 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(test_data_router)
+app.include_router(dataset_router)
 
 
 @app.get("/health")

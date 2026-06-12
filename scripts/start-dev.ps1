@@ -98,7 +98,8 @@ try {
 
     Push-Location $frontendDir
     $env:VITE_BACKEND_PORT = "$BackendPort"
-    npm run dev -- --host --port $FrontendPort
+    # Port/host are set in vite.config.js — npm 10+ treats --host/--port as npm flags if passed here.
+    npm run dev
 } finally {
     Pop-Location -ErrorAction SilentlyContinue
 

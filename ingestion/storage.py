@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,5 +46,43 @@ def load_metadata(upload_id: str) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def extraction_index_path(upload_id: str) -> Path:
+    return upload_dir(upload_id) / "extraction.json"
+
+
+def save_extraction_index(upload_id: str, payload: dict) -> None:
+    path = extraction_index_path(upload_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+
+
+def load_extraction_index(upload_id: str) -> dict | None:
+    path = extraction_index_path(upload_id)
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def pdf_path(upload_id: str) -> Path:
     return upload_dir(upload_id) / "source.pdf"
+
+
+def delete_upload_dir(upload_id: str) -> bool:
+    """Remove an upload folder and all extracted assets. Returns True if deleted."""
+    path = upload_dir(upload_id)
+    if not path.is_dir():
+        return False
+    shutil.rmtree(path)
+    return True
+
+
+def purge_all_uploads() -> int:
+    """Delete every folder under uploads/. Returns count removed."""
+    if not UPLOADS_DIR.is_dir():
+        return 0
+    removed = 0
+    for path in list(UPLOADS_DIR.iterdir()):
+        if path.is_dir():
+            shutil.rmtree(path)
+            removed += 1
+    return removed

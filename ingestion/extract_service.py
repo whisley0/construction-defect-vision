@@ -6,21 +6,36 @@ from pathlib import Path
 
 from ingestion.image_extractor import extract_images_from_pdf
 from ingestion.pdf_parser import parse_rfi_pdf
-from ingestion.storage import save_upload, upload_dir, new_upload_id
+from ingestion.storage import (
+    load_extraction_index,
+    load_metadata,
+    pdf_path,
+    save_extraction_index,
+    save_upload,
+    upload_dir,
+    new_upload_id,
+)
 from schemas.api import PageTextPreview, RfiExtractionResponse
 from schemas.inspection import ExtractionCrosscheck
 
 _MAX_PDF = 40 * 1024 * 1024
 
 
-def process_rfi_pdf_bytes(raw: bytes, *, filename: str) -> RfiExtractionResponse:
+def process_rfi_pdf_bytes(
+    raw: bytes,
+    *,
+    filename: str,
+    upload_id: str | None = None,
+    source_relative_path: str | None = None,
+    local_dir: str | None = None,
+) -> RfiExtractionResponse:
     if len(raw) > _MAX_PDF:
         raise ValueError(f"PDF too large (max {_MAX_PDF // (1024 * 1024)} MiB): {filename}")
     if not raw:
         raise ValueError(f"Empty file: {filename}")
 
     t0 = time.perf_counter()
-    upload_id = new_upload_id()
+    upload_id = upload_id or new_upload_id()
 
     record, parse_status, pages = parse_rfi_pdf(raw, filename=filename)
 
@@ -63,6 +78,20 @@ def process_rfi_pdf_bytes(raw: bytes, *, filename: str) -> RfiExtractionResponse
             "crosscheck_complete": crosscheck.complete,
             "image_count": len(images),
             "site_photo_count": len(site_photos),
+            "source_relative_path": source_relative_path,
+            "local_dir": local_dir,
+        },
+    )
+
+    save_extraction_index(
+        upload_id,
+        {
+            "upload_id": upload_id,
+            "filename": filename,
+            "source_relative_path": source_relative_path,
+            "local_dir": local_dir,
+            "inspection": record.model_dump(mode="json"),
+            "images": [img.model_dump(mode="json") for img in images],
         },
     )
 
@@ -79,3 +108,40 @@ def process_rfi_pdf_bytes(raw: bytes, *, filename: str) -> RfiExtractionResponse
         warnings=warnings,
         duration_ms=round(duration_ms, 1),
     )
+
+
+def rebuild_rfi_extraction(upload_id: str) -> RfiExtractionResponse:
+    """Re-parse a previously extracted upload for crosscheck review."""
+    meta = load_metadata(upload_id)
+    if not meta:
+        raise ValueError(f"Upload not found: {upload_id}")
+    path = pdf_path(upload_id)
+    if not path.is_file():
+        raise ValueError(f"PDF missing for upload: {upload_id}")
+    filename = meta.get("filename") or "document.pdf"
+    return process_rfi_pdf_bytes(
+        path.read_bytes(),
+        filename=filename,
+        upload_id=upload_id,
+        source_relative_path=meta.get("source_relative_path"),
+        local_dir=meta.get("local_dir"),
+    )
+
+
+def ensure_extraction_index(upload_id: str) -> dict:
+    """Return persisted extraction index, rebuilding from disk when missing."""
+    existing = load_extraction_index(upload_id)
+    if existing:
+        return existing
+    result = rebuild_rfi_extraction(upload_id)
+    meta = load_metadata(upload_id) or {}
+    payload = {
+        "upload_id": upload_id,
+        "filename": result.filename,
+        "source_relative_path": meta.get("source_relative_path"),
+        "local_dir": meta.get("local_dir"),
+        "inspection": result.inspection.model_dump(mode="json"),
+        "images": [img.model_dump(mode="json") for img in result.images],
+    }
+    save_extraction_index(upload_id, payload)
+    return payload

@@ -26,6 +26,7 @@ class RfiExtractionResponse(BaseModel):
     pdf_url: str
     warnings: list[str] = Field(default_factory=list)
     duration_ms: float | None = None
+    inspecto: dict | None = None
 
 
 class RfiBatchItemError(BaseModel):

@@ -7,7 +7,8 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pathlib import Path
 
-from ingestion.extract_service import process_rfi_pdf_bytes
+from ingestion.extract_service import process_rfi_pdf_bytes, rebuild_rfi_extraction
+from ingestion.inspecto_csv import lookup_inspecto_metadata
 from ingestion.storage import load_metadata, pdf_path, upload_dir
 from schemas.api import RfiBatchExtractionResponse, RfiBatchItemError, RfiExtractionResponse
 
@@ -92,6 +93,22 @@ async def rfi_extract_batch(
         errors=errors,
         duration_ms=round(duration_ms, 1),
     )
+
+
+def _with_inspecto(result: RfiExtractionResponse) -> RfiExtractionResponse:
+    inspecto = lookup_inspecto_metadata(filename=result.filename)
+    if not inspecto:
+        return result
+    return result.model_copy(update={"inspecto": inspecto})
+
+
+@router.get("/api/rfi/{upload_id}/extraction", response_model=RfiExtractionResponse)
+async def rfi_get_extraction(upload_id: str):
+    """Load crosscheck results for a previously extracted upload."""
+    try:
+        return _with_inspecto(rebuild_rfi_extraction(upload_id))
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.get("/api/rfi/{upload_id}/file")
